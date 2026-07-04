@@ -58,6 +58,25 @@
 
 ---
 
+## 2026-07-04（續 2）
+
+**嘗試做的事情**：修正導覽選單問題並簡化選單項目。
+1. 使用者反應：滑鼠沒有滑到「產品」等按鈕上時，子選單細項就已經直接列出來，畫面很亂。
+2. 導覽列頂層只留「首頁」「關於我們」「產品」「聯絡我們」四項，移除「代工與原料供應」「電子商店」「職涯」。
+3. 「產品」子選單只留「凍乾水果」「凍乾優格咬」兩項。
+
+**排查過程**：檢查 `style.css`，發現 `.submenu { display: none; }` 雖然有寫，但 `.main-nav ul { display: flex; ... }` 這條規則的 CSS 選擇器權重（specificity: 1 class + 1 element = 11）比 `.submenu`（1 class = 10）還高，而且 `.submenu` 這個 `<ul>` 本身也是 `.main-nav` 底下的 `ul`，所以會被 `.main-new ul` 的 `display:flex` 蓋過去，導致子選單永遠是顯示狀態，hover 完全不會發生作用。
+
+**此路不通**：一開始以為只是漏寫 `:hover` 規則，但檢查後發現 `:hover` 規則其實已經存在（`.main-nav .has-submenu:hover .submenu { display: block; }`），問題不在有沒有寫 hover 規則，而是「預設隱藏」那條規則的權重不夠、被別的規則蓋掉，純粹是 CSS specificity 的問題。
+
+**最終解法**：把預設隱藏的選擇器從 `.submenu` 改成 `.main-nav .submenu`（2 個 class，權重 20），權重超過 `.main-nav ul`（11），子選單才會真正預設隱藏，再靠 `:hover` 規則（權重更高）顯示。
+
+**結果**：✅ 成功。同時新增了「凍乾優格咬」骨架頁面（`product/freeze-dried-yogurt-bites/index.html`），讓簡化後的產品選單連結不會 404，並更新首頁頁面清單、footer 產品分類連結。
+
+**目前狀態／待辦**：已 commit + push（commit `4dda537`），GitHub Pages 會自動重新部署。「關於我們」的子選單目前維持原本 5 個項目沒有變動（使用者這次只要求簡化頂層與「產品」子選單）。
+
+---
+
 <!--
 新增記錄範本（複製此區塊填寫）：
 
