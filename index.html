@@ -5,11 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>【公司名稱佔位】首頁（版面骨架）</title>
 <link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
+<script>
+  window.PAGE_ID = "home";
+  window.IMAGE_BASE_PATH = "images/";
+</script>
 </head>
 <body>
 
   <div class="notice-banner">
-    此頁面為內部開發用的版面骨架（Layout Skeleton），文字與圖片皆為佔位內容，尚未套用正式授權的翻譯與素材。
+    此頁面為內部開發用的版面骨架（Layout Skeleton），文字與圖片皆為佔位內容，尚未套用正式授權的翻譯與素材。左上角「編輯模式」可直接編輯文字與圖片。
   </div>
 
   <header class="site-header">
@@ -153,7 +158,8 @@
 
   <script type="module">
     import { loadPageContent } from "./firebase-content.js";
-    loadPageContent("home");
+    import { initEditMode } from "./edit-mode.js";
+    loadPageContent("home").then(() => initEditMode());
   </script>
 
 </body>

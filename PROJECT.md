@@ -103,10 +103,32 @@
 - **前端**：純 HTML + CSS + 少量原生 JavaScript（無 build 工具，無 npm/Vite）
 - **內容資料庫**：Firebase Firestore（專案 ID：`tastiwaycn`，與 Silerune 使用的 `silerune-ee33e` 是不同的獨立 Firebase 專案）
   - 資料結構：collection `pages`，每個頁面一份文件（`pages/home`、`pages/freeze-dried-fruits`、`pages/freeze-dried-yogurt-bites`）
-  - 每份文件裡的欄位（如 `introText`、`coreAdvantagesText`、`processText`、`packagingText`、`heroTagline`、`brandIntroText`）對應頁面上 `data-field="欄位名稱"` 的元素，頁面載入時透過 `firebase-content.js` 讀取並套用；若 Firestore 還沒有對應文件/欄位，畫面會維持 HTML 裡寫死的佔位文字（不會出錯或空白）
-  - 目前**只有讀取（read-only）**，沒有像 Silerune 那樣的「編輯模式」UI；要更新內容，需要直接到 Firebase 主控台的 Firestore Database 頁面手動編輯文件欄位
+  - 每份文件裡的欄位（如 `introText`、`coreAdvantagesText`、`processText`、`packagingText`、`heroTagline`、`brandIntroText`、`productTitle`，以及每個圖片框對應的 `img_0`、`img_1`...）對應頁面上 `data-field`／`data-img-field` 的元素，頁面載入時透過 `firebase-content.js` 讀取並套用；若 Firestore 還沒有對應文件/欄位，畫面會維持 HTML 裡寫死的佔位內容（不會出錯或空白）
+  - 圖片欄位存的是**檔名**（例如 `hero-banner.jpg`），不是完整網址，實際圖片檔案要放在專案的 `images/` 資料夾底下
+- **編輯模式**（`edit-mode.js`）：每個頁面左上角有「✎ 編輯模式」按鈕，輸入密碼後可以：
+  - 直接點擊文字區塊輸入（`contenteditable`），選取文字會跳出工具列可設定粗體／斜體／底線／字級（Notion 風格的輕量版工具列，非完整的區塊編輯器）
+  - 點擊每個圖片佔位框右上角的圓形按鈕，輸入 `images/` 資料夾裡的檔名來更換圖片
+  - 上述變更會即時寫回 Firestore（呼叫 `firebase-content.js` 的 `saveField()`）
+  - 文字內容用 `innerHTML` 顯示以保留格式，讀取時會用 **DOMPurify**（CDN 引入）過濾，只允許 `b/i/u/span` 標籤與 `style` 屬性，避免被寫入惡意 HTML/script 造成 XSS
+  - ⚠️ **安全性限制**：目前沒有接 Firebase Auth，「密碼」只是前端 UI 提示、防止一般訪客誤觸，**不是真正的身分驗證**。Firestore 規則層級允許任何人對這三份頁面文件寫入（見下方規則），所以理論上有心人士仍可繞過網頁介面直接呼叫 Firestore API 竄改內容。如果未來要防止惡意竄改，需要另外導入 Firebase Auth + 依登入身分限制寫入的規則。
 - **Firebase SDK 載入方式**：透過 CDN 直接 `import`（`https://www.gstatic.com/firebasejs/12.0.0/...`），不需要 npm install，適合這種沒有 build 流程的靜態網站
 - **部署**：GitHub Pages（repo：https://github.com/albatron0523/test ）
+
+**Firestore 安全規則**（已更新為允許寫入這三份已知的頁面文件）：
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    match /pages/{pageId} {
+      allow read: if true;
+      allow write: if pageId in ['home', 'freeze-dried-fruits', 'freeze-dried-yogurt-bites'];
+    }
+  }
+}
+```
 
 ## 4. 素材清單
 
