@@ -102,19 +102,24 @@
 
 - **前端**：純 HTML + CSS + 少量原生 JavaScript（無 build 工具，無 npm/Vite）
 - **內容資料庫**：Firebase Firestore（專案 ID：`tastiwaycn`，與 Silerune 使用的 `silerune-ee33e` 是不同的獨立 Firebase 專案）
-  - 資料結構：collection `pages`，每個頁面一份文件（`pages/home`、`pages/freeze-dried-fruits`、`pages/freeze-dried-yogurt-bites`）
-  - 每份文件裡的欄位（如 `introText`、`coreAdvantagesText`、`processText`、`packagingText`、`heroTagline`、`brandIntroText`、`productTitle`，以及每個圖片框對應的 `img_0`、`img_1`...）對應頁面上 `data-field`／`data-img-field` 的元素，頁面載入時透過 `firebase-content.js` 讀取並套用；若 Firestore 還沒有對應文件/欄位，畫面會維持 HTML 裡寫死的佔位內容（不會出錯或空白）
+  - 資料結構：collection `pages`，每個頁面一份文件（`pages/home`、`pages/freeze-dried-fruits`、`pages/freeze-dried-yogurt-bites`），另外還有一份共用的 `pages/nav`，存整個網站共用的導覽選單結構（`items` 欄位，陣列）
+  - 每份頁面文件裡的欄位（如 `introText`、`coreAdvantagesText`、`processText`、`packagingText`、`heroTagline`、`brandIntroText`、`productTitle`、`flavors`（口味選項陣列），以及每個圖片框對應的 `img_0`、`img_1`...）對應頁面上 `data-field`／`data-img-field`／`data-list-field` 的元素，頁面載入時透過 `firebase-content.js` 讀取並套用；若 Firestore 還沒有對應文件/欄位，畫面會維持 HTML 裡寫死的佔位內容（不會出錯或空白）
+  - 導覽選單（`pages/nav`）沒有資料時，會 fallback 用 `firebase-content.js` 裡的 `DEFAULT_NAV` 常數渲染（跟目前網站結構一致）
   - 圖片欄位存的是**檔名**（例如 `hero-banner.jpg`），不是完整網址，實際圖片檔案要放在專案的 `images/` 資料夾底下
-- **編輯模式**（`edit-mode.js`）：每個頁面左上角有「✎ 編輯模式」按鈕，輸入密碼後可以：
-  - 直接點擊文字區塊輸入（`contenteditable`），選取文字會跳出工具列可設定粗體／斜體／底線／字級（Notion 風格的輕量版工具列，非完整的區塊編輯器）
+- **編輯模式**（`edit-mode.js`）：每個頁面左上角有「✎ 編輯模式」按鈕，密碼是 `2026`，輸入後可以：
+  - 直接點擊文字區塊輸入（`contenteditable`），選取文字會跳出工具列可設定粗體／斜體／底線／字級／**文字顏色**（Notion 風格的輕量版工具列，非完整的區塊編輯器）
   - 點擊每個圖片佔位框右上角的圓形按鈕，輸入 `images/` 資料夾裡的檔名來更換圖片
-  - 上述變更會即時寫回 Firestore（呼叫 `firebase-content.js` 的 `saveField()`）
-  - 文字內容用 `innerHTML` 顯示以保留格式，讀取時會用 **DOMPurify**（CDN 引入）過濾，只允許 `b/i/u/span` 標籤與 `style` 屬性，避免被寫入惡意 HTML/script 造成 XSS
-  - ⚠️ **安全性限制**：目前沒有接 Firebase Auth，「密碼」只是前端 UI 提示、防止一般訪客誤觸，**不是真正的身分驗證**。Firestore 規則層級允許任何人對這三份頁面文件寫入（見下方規則），所以理論上有心人士仍可繞過網頁介面直接呼叫 Firestore API 竄改內容。如果未來要防止惡意竄改，需要另外導入 Firebase Auth + 依登入身分限制寫入的規則。
+  - **導覽選單**：可直接編輯選單文字、新增／刪除頂層選單或子選單項目（新增的項目預設連到 `#`，還沒有對應頁面）
+  - **口味選項（`flavor-tags`）**：可直接編輯文字、新增／刪除選項
+  - 進入編輯模式後按 Enter 換行一律用 `<br>`（`document.execCommand('defaultParagraphSeparator', false, 'br')`），修正之前「打內文時空行被刪掉」的問題（原因是瀏覽器可能在 `<p contenteditable>` 裡插入巢狀 `<div>`，不合法的巢狀結構在存回/讀出時可能被壓縮掉）
+  - 有未儲存的變更時，離開編輯模式、點擊任何連結、或重新整理／關閉分頁都會跳出確認提醒（`beforeunload` + 攔截連結點擊）
+  - 上述變更會即時寫回 Firestore（呼叫 `firebase-content.js` 的 `saveField()` / `saveNav()`）
+  - 文字內容用 `innerHTML` 顯示以保留格式，讀取時會用 **DOMPurify**（CDN 引入）過濾，只允許 `b/strong/i/em/u/span/br/div/p` 標籤與 `style` 屬性，避免被寫入惡意 HTML/script 造成 XSS
+  - ⚠️ **安全性限制**：目前沒有接 Firebase Auth，「密碼」只是前端 UI 提示、防止一般訪客誤觸，**不是真正的身分驗證**。Firestore 規則層級允許任何人對這幾份頁面文件寫入（見下方規則），所以理論上有心人士仍可繞過網頁介面直接呼叫 Firestore API 竄改內容。如果未來要防止惡意竄改，需要另外導入 Firebase Auth + 依登入身分限制寫入的規則。
 - **Firebase SDK 載入方式**：透過 CDN 直接 `import`（`https://www.gstatic.com/firebasejs/12.0.0/...`），不需要 npm install，適合這種沒有 build 流程的靜態網站
 - **部署**：GitHub Pages（repo：https://github.com/albatron0523/test ）
 
-**Firestore 安全規則**（已更新為允許寫入這三份已知的頁面文件）：
+**Firestore 安全規則**（已更新為允許寫入這幾份已知的頁面文件，新增了 `nav`）：
 ```
 rules_version = '2';
 service cloud.firestore {
@@ -124,11 +129,12 @@ service cloud.firestore {
     }
     match /pages/{pageId} {
       allow read: if true;
-      allow write: if pageId in ['home', 'freeze-dried-fruits', 'freeze-dried-yogurt-bites'];
+      allow write: if pageId in ['home', 'freeze-dried-fruits', 'freeze-dried-yogurt-bites', 'nav'];
     }
   }
 }
 ```
+（`nav` 是共用導覽選單資料，`home`/`freeze-dried-fruits`/`freeze-dried-yogurt-bites` 是各頁面內容。如果之前已經貼過舊版規則，這次要記得重新到 Firebase 主控台貼上新版並發布，不然導覽選單的編輯會存不進去。）
 
 ## 4. 素材清單
 

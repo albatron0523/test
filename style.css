@@ -117,6 +117,115 @@ img {
   background: #8a7f9c;
 }
 
+.rte-color-palette {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.25rem;
+  gap: 0.25rem;
+  padding: 0.35rem;
+  background: #222;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.rte-color-palette.is-open {
+  display: flex;
+}
+
+.rte-color-palette button {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  padding: 0;
+  cursor: pointer;
+}
+
+/* 導覽選單編輯 */
+.main-nav a[contenteditable="true"] {
+  outline: 1px dashed #8a7f9c;
+  outline-offset: 2px;
+  cursor: text;
+  padding: 0 2px;
+}
+
+.nav-remove-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: #e03131;
+  color: #fff;
+  font-size: 0.6rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.nav-add-btn {
+  list-style: none;
+}
+
+.nav-add-btn button {
+  border: 1px dashed #8a7f9c;
+  background: transparent;
+  color: #8a7f9c;
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.submenu .nav-add-btn button {
+  width: 100%;
+  text-align: left;
+  border-radius: 4px;
+}
+
+/* 口味選項等清單編輯 */
+.flavor-tags span.is-editable-tag {
+  position: relative;
+  outline: 1px dashed #8a7f9c;
+  cursor: text;
+  padding-right: 1.4rem;
+}
+
+.tag-remove-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: #e03131;
+  color: #fff;
+  font-size: 0.6rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tag-add-btn {
+  border: 1px dashed #8a7f9c;
+  background: transparent;
+  color: #8a7f9c;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
 .placeholder-box {
   background: repeating-linear-gradient(
     45deg,

@@ -9,6 +9,7 @@
 <script>
   window.PAGE_ID = "freeze-dried-fruits";
   window.IMAGE_BASE_PATH = "../../images/";
+  window.PAGE_ROOT = "../../";
 </script>
 </head>
 <body>
@@ -21,27 +22,7 @@
     <div class="header-inner">
       <div class="logo-placeholder placeholder-box">LOGO 佔位</div>
       <nav class="main-nav">
-        <ul>
-          <li><a href="#">首頁</a></li>
-          <li class="has-submenu">
-            <a href="#">關於我們</a>
-            <ul class="submenu">
-              <li><a href="#">我們的成長</a></li>
-              <li><a href="#">獲獎紀錄</a></li>
-              <li><a href="#">認證</a></li>
-              <li><a href="#">活動與展覽</a></li>
-              <li><a href="#">集團公司</a></li>
-            </ul>
-          </li>
-          <li class="has-submenu">
-            <a href="#">產品</a>
-            <ul class="submenu">
-              <li><a href="./">凍乾水果</a></li>
-              <li><a href="../freeze-dried-yogurt-bites/">凍乾優格咬</a></li>
-            </ul>
-          </li>
-          <li><a href="#">聯絡我們</a></li>
-        </ul>
+        <ul><!-- 由 firebase-content.js 的 renderNav() 動態產生，見頁面下方 script --></ul>
       </nav>
     </div>
   </header>
@@ -57,7 +38,7 @@
   <section class="section">
     <h2>產品介紹</h2>
     <p data-field="introText">【此處為產品口味介紹文案佔位，待填入正式授權翻譯內容】</p>
-    <div class="flavor-tags">
+    <div class="flavor-tags" data-list-field="flavors">
       <span>口味佔位 1</span>
       <span>口味佔位 2</span>
       <span>口味佔位 3</span>
