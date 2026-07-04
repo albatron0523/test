@@ -77,6 +77,32 @@
 
 ---
 
+## 2026-07-04（續 3）
+
+**嘗試做的事情**：把網站接上 Firebase Firestore，並建立首頁完整骨架、修正下拉選單動畫。
+
+**做法**：
+1. 使用者已在 Firebase 主控台手動建立新專案 `tastiwaycn` 並啟用 Firestore（測試模式），提供了 `firebaseConfig`。
+2. 原本打算用 `firebase-tools` CLI（`npm install -g firebase-tools`）建立/管理專案，執行 `firebase login --no-localhost`。
+3. 建立 `firebase-content.js`：用 CDN 方式（`https://www.gstatic.com/firebasejs/12.0.0/...`）以 ES module 初始化 Firebase App + Firestore，並寫了 `loadPageContent(pageId)` 函式，讀取 `pages/{pageId}` 文件，把欄位套進頁面上帶 `data-field` 屬性的元素。
+4. 在首頁與兩個產品頁的 `<script type="module">` 裡呼叫 `loadPageContent("home" / "freeze-dried-fruits" / "freeze-dried-yogurt-bites")`。
+5. 建立首頁完整骨架（原本首頁只是兩行連結清單），區塊包含：Hero banner、主標語、品牌簡介、產品分類（依使用者要求只放 2 項）、核心價值、活動展覽、認證、獲獎、國際據點、型錄下載、共用頁尾。
+6. 修正下拉選單「一開始就直接出現、不美觀」的問題：把 `display:none/block` 切換方式改成 `opacity` + `transform` + `transition`，讓子選單變成淡入淡出＋輕微上滑的動畫效果。
+
+**結果**：⚠️ 部分成功。
+
+**此路不通**：`firebase login --no-localhost` 與 `firebase login:ci --no-localhost` 都直接報錯 `Cannot run login in non-interactive mode.` / `Cannot run login:ci in non-interactive mode.`，在指令一開始就被拒絕，沒有機會進入任何互動流程（跟稍早 `gh auth login` 不一樣——`gh` 是先印出驗證碼才等待，`firebase` CLI 則是偵測到沒有 TTY 就直接整個拒絕執行，`--help` 裡也沒有找到可以強制略過這個檢查的參數）。**原因**：這個工具執行環境沒有附加真正的互動式終端機（TTY），而 firebase-tools 的登入指令會主動偵測並拒絕在這種環境下執行，跟 gh CLI 的容忍度不同。
+
+**最終解法**：放棄用 firebase-tools CLI 建立/管理 Firebase 專案，改成請使用者自己到 **Firebase 主控台網頁**手動建立專案、啟用 Firestore、註冊 Web App 拿到 `firebaseConfig`，再把設定貼給我，由我把設定寫進 `firebase-content.js`。前端讀取 Firestore的部分完全不需要 CLI，用瀏覽器端 SDK（CDN 版）即可，所以 CLI 登入卡關並不影響最終功能的完成。
+
+**目前狀態／待辦**：
+- 已 commit + push（commit `340de43`），GitHub Pages 會自動重新部署。
+- Firestore 目前**還沒有任何實際文件**（`pages/home`、`pages/freeze-dried-fruits`、`pages/freeze-dried-yogurt-bites` 都不存在），所以現在網站顯示的還是 HTML 裡寫死的佔位文字（程式已確認：文件不存在時會 fallback 顯示原本文字，不會報錯或空白）。
+- 待使用者依教學步驟到 Firestore 主控台手動建立第一份文件測試，確認「改 Firestore 資料 → 網站顯示跟著變」這個循環真的有跑通。
+- Firestore 安全規則已提供新版本（`pages` collection 公開讀、禁止寫入），待使用者貼到主控台的規則分頁發布，取代原本的「測試模式」規則（測試模式規則 30 天後會失效）。
+
+---
+
 <!--
 新增記錄範本（複製此區塊填寫）：
 
