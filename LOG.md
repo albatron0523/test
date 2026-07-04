@@ -28,6 +28,36 @@
 
 ---
 
+## 2026-07-04（續）
+
+**嘗試做的事情**：在 GitHub 建立公開 repo `test`，並上傳「凍乾水果」產品頁的版面骨架，透過 GitHub Pages 讓使用者可直接用網址瀏覽。
+
+**做法**：
+1. 檢查本機是否有 GitHub CLI (`gh`)，發現未安裝。
+2. 用 `winget install --id GitHub.cli` 安裝，**第一次安裝時系統管理員權限視窗被取消，安裝失敗**（exit code 12 / 1602，使用者按錯選項）。
+3. 重新執行同一個 `winget install` 指令，這次順利完成安裝。
+4. 執行 `gh auth login --hostname github.com --git-protocol https --web`，由於此指令需要瀏覽器互動登入，會卡住等待輸入，改用背景執行（`run_in_background`），取得一次性驗證碼後請使用者自行到瀏覽器完成登入，登入完成後用 `gh auth status` 確認成功（帳號 albatron0523）。
+5. `git init` + `git add` + `git commit` 建立本地 repo，用 `gh repo create test --public --source=. --remote=origin --push` 一次建立遠端 repo 並 push。
+6. 撰寫版面骨架：`index.html`（首頁）、`product/freeze-dried-fruits/index.html`（產品頁）、`style.css`。**重要決策：文字與圖片全部使用中性佔位內容，不重製原網站的實際文案／產品照片／Logo／認證圖示**，原因是無法確認客戶與 Tastiway 的授權合約範圍是否涵蓋「公開上傳逐字複製版本」這種使用方式；已跟使用者確認過這個做法（選項：用占位內容建架構）。
+7. 用 `gh api -X POST repos/albatron0523/test/pages -f "source[branch]=main" -f "source[path]=/"` 啟用 GitHub Pages，輪詢 `gh api repos/albatron0523/test/pages` 直到 `status` 變成 `built`。
+
+**結果**：✅ 成功。
+
+**此路不通（第一次嘗試）**：`winget install --id GitHub.cli` 第一次執行時，UAC 系統管理員權限視窗被關閉／取消，導致安裝程式回傳「您取消了安裝」，exit code 1602。**原因**：使用者當下誤觸取消，非程式或指令本身的問題。**解法**：原指令不變，重新執行一次，這次在 UAC 視窗點「是」即可正常安裝，之後沒有再遇到這個問題。
+
+**最終解法**：
+- GitHub CLI 安裝：`winget install --id GitHub.cli -e --source winget --accept-package-agreements --accept-source-agreements`（第二次執行成功）。
+- 登入：`gh auth login --hostname github.com --git-protocol https --web`，因為需要使用者在瀏覽器輸入一次性驗證碼，此指令必須用背景模式執行，並把輸出裡的驗證碼／網址轉告使用者手動完成，無法全自動化。
+- 建立並推送 repo：`gh repo create <name> --public --source=. --remote=origin --push` 可以一步完成建立遠端 repo、設定 remote、push 三件事，比手動在網頁建立再 `git remote add` 快。
+- 啟用 Pages：`gh api -X POST repos/<owner>/<repo>/pages -f "source[branch]=main" -f "source[path]=/"`，啟用後不會立即生效，需要輪詢 `gh api repos/<owner>/<repo>/pages` 直到 `status` 從 `null`/`building` 變成 `built`，通常等待約 20 秒內完成。
+
+**目前狀態／待辦**：
+- 已上線：https://albatron0523.github.io/test/ （首頁）與 https://albatron0523.github.io/test/product/freeze-dried-fruits/ （產品頁骨架）。
+- 目前頁面全部是佔位文字與灰底佔位圖框，尚未套用任何正式授權的翻譯文案或素材圖片。
+- 下一步待使用者決定：是否提供實際授權素材（文案、圖片）以便替換佔位內容；若要替換為正式內容並保留公開瀏覽，需重新評估 repo 是否要改為 private。
+
+---
+
 <!--
 新增記錄範本（複製此區塊填寫）：
 
