@@ -3,6 +3,7 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBP9F-EN0Gqbd7jxqA73Fl97fpgBywB3UM",
@@ -15,12 +16,11 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
 
 // 文字欄位允許保留的格式標籤／樣式（其餘一律過濾掉，避免公開可寫入的 Firestore
 // 資料被拿來做 XSS 攻擊——這個網站的編輯功能沒有真正的登入驗證，只有前端密碼
 // 提示，Firestore 規則本身仍允許任何人寫入，所以「讀取時」一定要做這層過濾）
-// 註：div/p 也放進允許清單，是為了避免瀏覽器在 contenteditable 裡按 Enter 產生的
-// 換行用區塊被整個濾掉，導致「打字時空行被吃掉」的問題。
 const SANITIZE_CONFIG = {
   ALLOWED_TAGS: ["b", "strong", "i", "em", "u", "span", "br", "div", "p"],
   ALLOWED_ATTR: ["style"],
@@ -28,7 +28,6 @@ const SANITIZE_CONFIG = {
 
 function sanitizeHtml(html) {
   if (typeof window.DOMPurify === "undefined") {
-    // DOMPurify 沒載入成功時，寧可完全不顯示格式化內容，也不要冒風險直接塞 innerHTML
     console.error("[安全性] DOMPurify 未載入，為避免 XSS 風險，改用純文字顯示。");
     const tmp = document.createElement("div");
     tmp.textContent = html;
@@ -37,18 +36,35 @@ function sanitizeHtml(html) {
   return window.DOMPurify.sanitize(html, SANITIZE_CONFIG);
 }
 
-// 圖片欄位存的是「檔名」，不是完整網址（避免使用者貼任意外部網址／javascript: 之類的內容）。
-// 檔名只允許英數字、底線、破折號、點（單一），不允許 / \ 或 ..，避免跳出 images/ 資料夾範圍。
-const SAFE_FILENAME_RE = /^[A-Za-z0-9._-]+$/;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20MB，跟 Storage 規則的限制對齊
 
-export function isSafeFilename(filename) {
-  return SAFE_FILENAME_RE.test(filename) && !filename.includes("..");
+// 把檔案上傳到 Firebase Storage，回傳 { url, mediaType }
+export async function uploadMedia(file, pathHint) {
+  if (!file) return null;
+  if (file.size > MAX_UPLOAD_BYTES) {
+    window.alert("檔案太大了（上限 20MB），請換一個較小的檔案。");
+    return null;
+  }
+  if (!/^image\/|^video\//.test(file.type)) {
+    window.alert("只能上傳圖片或影片檔案。");
+    return null;
+  }
+  const mediaType = file.type.startsWith("video/") ? "video" : "image";
+  const safeName = file.name.replace(/[^A-Za-z0-9._-]/g, "_");
+  const path = `uploads/${pathHint}-${Date.now()}-${safeName}`;
+  try {
+    const storageRef = ref(storage, path);
+    await uploadBytes(storageRef, file);
+    const url = await getDownloadURL(storageRef);
+    return { url, mediaType };
+  } catch (err) {
+    console.error("[Storage] 上傳失敗：", err);
+    window.alert("上傳失敗，請檢查網路連線或 Storage 規則設定。");
+    return null;
+  }
 }
 
-// 導覽選單的預設結構（Firestore 裡的 pages/nav 文件還沒建立時使用這份 fallback，
-// 讓每個頁面都是透過同一個 renderNav() 畫出來，而不是各自寫死 HTML，
-// 這樣「編輯模式」改了選單之後，才能真正對所有頁面都生效）。
-// href 是「相對於網站根目錄」的路徑，實際連結會自動補上 window.PAGE_ROOT 前綴。
+// 導覽選單的預設結構（Firestore 裡的 pages/nav 文件還沒建立時使用這份 fallback）
 export const DEFAULT_NAV = [
   { label: "首頁", href: "" },
   {
@@ -78,7 +94,6 @@ function resolveNavHref(href) {
   return (window.PAGE_ROOT || "./") + href;
 }
 
-// 依照 items 陣列重新畫出 .main-nav > ul 的內容
 export function renderNav(items) {
   const ul = document.querySelector(".main-nav > ul");
   if (!ul || !Array.isArray(items)) return;
@@ -109,7 +124,6 @@ export function renderNav(items) {
   });
 }
 
-// 讀取共用的導覽選單資料（存在 pages/nav 這份文件裡）
 export async function loadNav() {
   try {
     const snap = await getDoc(doc(db, "pages", "nav"));
@@ -125,9 +139,93 @@ export async function saveNav(items) {
   return saveField("nav", "items", items);
 }
 
-// 讀取 pages/{pageId} 這份文件，把裡面的欄位套進畫面上所有
-// 帶有 data-field / data-img-field / data-list-field 屬性的元素，
-// 並套用共用的導覽選單。（找不到文件或欄位就維持 HTML 裡原本的佔位內容）
+// ---- 文字區塊（section）順序／顯示狀態 ----
+// sectionOrder 存目前「還留著」的 section id，依畫面上的順序排列；
+// 沒有在陣列裡的 section 一律隱藏（代表被刪除了）
+export function applySectionOrder(order) {
+  if (!Array.isArray(order)) return;
+  const sections = {};
+  document.querySelectorAll("[data-section-id]").forEach((s) => {
+    sections[s.dataset.sectionId] = s;
+    s.style.display = "none";
+  });
+  let anchor = null;
+  order.forEach((id) => {
+    const s = sections[id];
+    if (!s) return;
+    s.style.display = "";
+    if (anchor) {
+      anchor.after(s);
+    }
+    anchor = s;
+  });
+}
+
+export function getCurrentSectionOrder() {
+  return Array.from(document.querySelectorAll("[data-section-id]"))
+    .filter((s) => s.style.display !== "none")
+    .map((s) => s.dataset.sectionId);
+}
+
+// ---- 單張圖片／影片欄位（data-img-field） ----
+
+export function applyImageToBox(el, url, mediaType) {
+  el.innerHTML = "";
+  el.classList.add("has-image");
+  const media = document.createElement(mediaType === "video" ? "video" : "img");
+  media.src = url;
+  if (mediaType === "video") {
+    media.controls = true;
+  } else {
+    media.alt = "";
+  }
+  el.appendChild(media);
+}
+
+export function clearImageBox(el) {
+  el.innerHTML = "";
+  el.classList.remove("has-image");
+}
+
+function renderCaption(container, text, position) {
+  let capEl = container.querySelector(":scope > .media-caption");
+  if (!text) {
+    if (capEl) capEl.remove();
+    return;
+  }
+  if (!capEl) {
+    capEl = document.createElement("div");
+    capEl.className = "media-caption";
+    container.appendChild(capEl);
+  }
+  capEl.textContent = text;
+  container.classList.toggle("caption-right", position === "right");
+  container.classList.toggle("caption-below", position !== "right");
+}
+
+// ---- 圖片／影片清單（data-media-list，例如認證區、獲獎區這類多張圖的網格） ----
+
+export function renderMediaList(container, items) {
+  container.querySelectorAll(":scope > .media-item").forEach((el) => el.remove());
+  const addBtn = container.querySelector(":scope > .media-add-btn");
+  (items || []).forEach((item) => {
+    const box = document.createElement("div");
+    box.className = "placeholder-box media-item";
+    if (item.url) {
+      applyImageToBox(box, item.url, item.mediaType);
+    } else {
+      box.textContent = "（空白圖片格）";
+    }
+    if (item.caption) {
+      renderCaption(box, item.caption, item.captionPos);
+    }
+    if (addBtn) container.insertBefore(box, addBtn);
+    else container.appendChild(box);
+  });
+}
+
+// ---- 讀取／套用頁面內容 ----
+
 export async function loadPageContent(pageId) {
   const navItems = await loadNav();
   renderNav(navItems || DEFAULT_NAV);
@@ -149,10 +247,15 @@ export async function loadPageContent(pageId) {
 
     document.querySelectorAll("[data-img-field]").forEach((el) => {
       const field = el.dataset.imgField;
-      const filename = data[field];
-      if (filename && isSafeFilename(filename)) {
-        el.dataset.imgFilename = filename;
-        applyImageToBox(el, filename);
+      const url = data[field];
+      if (url) {
+        el.dataset.imgUrl = url;
+        el.dataset.mediaType = data[field + "_type"] || "image";
+        applyImageToBox(el, url, el.dataset.mediaType);
+      }
+      const caption = data[field + "_caption"];
+      if (caption) {
+        renderCaption(el, caption, data[field + "_captionPos"]);
       }
     });
 
@@ -162,38 +265,33 @@ export async function loadPageContent(pageId) {
         renderTagList(el, data[field]);
       }
     });
+
+    document.querySelectorAll("[data-media-list]").forEach((el) => {
+      const field = el.dataset.mediaList;
+      if (Array.isArray(data[field])) {
+        renderMediaList(el, data[field]);
+      }
+    });
+
+    if (Array.isArray(data.sectionOrder)) {
+      applySectionOrder(data.sectionOrder);
+    }
   } catch (err) {
     console.error("[Firestore] 讀取內容失敗：", err);
   }
 }
 
-// 把一組文字陣列畫成 .flavor-tags 裡面的 <span> 清單（用於「口味選項」這類可增減的標籤列表）
 export function renderTagList(container, items) {
   container.querySelectorAll(":scope > span").forEach((s) => s.remove());
   const addBtn = container.querySelector(":scope > .tag-add-btn");
   items.forEach((text) => {
     const span = document.createElement("span");
     span.textContent = text;
-    if (addBtn) {
-      container.insertBefore(span, addBtn);
-    } else {
-      container.appendChild(span);
-    }
+    if (addBtn) container.insertBefore(span, addBtn);
+    else container.appendChild(span);
   });
 }
 
-// 把圖片檔名套用到一個 .placeholder-box 元素上（清空原本的佔位文字，改顯示圖片）
-// 檔名會拼上 window.IMAGE_BASE_PATH（每個頁面在自己的 HTML 裡設定，因為路徑深度不同）
-export function applyImageToBox(el, filename) {
-  el.innerHTML = "";
-  el.classList.add("has-image");
-  const img = document.createElement("img");
-  img.src = (window.IMAGE_BASE_PATH || "images/") + filename;
-  img.alt = "";
-  el.appendChild(img);
-}
-
-// 把單一欄位寫回 Firestore（merge，不影響其他欄位）
 export async function saveField(pageId, field, value) {
   try {
     await setDoc(doc(db, "pages", pageId), { [field]: value, updatedAt: new Date().toISOString() }, { merge: true });
@@ -203,3 +301,5 @@ export async function saveField(pageId, field, value) {
     return false;
   }
 }
+
+export const isSafeFilename = () => true; // 保留匯出名稱以相容舊呼叫（已改用真正上傳，不再需要檔名檢查）

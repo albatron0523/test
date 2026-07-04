@@ -1,24 +1,27 @@
 // 共用的「編輯模式」模組：每個頁面 import 這個檔案並呼叫 initEditMode()
 //
-// 功能：
-// 1. 頁面左上角固定一個「✎ 編輯模式」按鈕，點擊後要求輸入密碼才能進入編輯模式
-// 2. 進入編輯模式後，所有 [data-field] 文字區塊變成可直接輸入（像 Notion 一樣），
-//    選取文字時會跳出一個小工具列，可以設定粗體／斜體／底線／字級／文字顏色
-// 3. 每個 .placeholder-box（圖片佔位框）右上角會出現一個小圓形按鈕，
-//    點擊後可以輸入圖片檔名，套用並存檔
-// 4. 導覽選單（列表）跟口味選項這類「清單」可以直接編輯文字、新增、刪除項目
-// 5. 有未儲存的變更時，離開編輯模式／重新整理／點擊連結都會跳出確認提醒
-// 6. 所有變更會即時寫回 Firestore（透過 firebase-content.js 的 saveField / saveNav）
-//
 // 安全性提醒：這裡的「密碼」只是前端提示用，防止一般訪客誤觸編輯功能，
-// 並不是真正的身分驗證——Firestore 規則本身仍允許任何人對這幾份文件寫入
-// （因為目前沒有串接 Firebase Auth）。如果之後要防止惡意訪客竄改內容，
-// 需要另外加上 Firebase Auth + 對應的 Firestore 規則，而不能只靠這個密碼提示。
+// 並不是真正的身分驗證——任何知道網址的人只要打開瀏覽器開發者工具，
+// 都能繞過這個密碼直接呼叫 Firestore／Storage API。目前也還沒有限制
+// 「誰能上傳檔案」，開放編輯模式的人都能上傳圖片／影片到 Firebase Storage，
+// 沒有身分驗證、也沒有人工審核，這點請自行評估風險（例如可能被上傳
+// 不當內容或大量檔案增加費用）。如果之後要防止濫用，需要加上 Firebase
+// Auth 並修改 Storage／Firestore 規則。
 
-import { saveField, saveNav, applyImageToBox, isSafeFilename, renderTagList } from "./firebase-content.js";
+import {
+  saveField,
+  saveNav,
+  applyImageToBox,
+  clearImageBox,
+  renderTagList,
+  renderMediaList,
+  uploadMedia,
+  applySectionOrder,
+  getCurrentSectionOrder,
+} from "./firebase-content.js";
 
 const EDIT_PASSWORD = "2026";
-const TEXT_COLORS = ["#e03131", "#f08c00", "#2f9e44", "#1971c2", "#9c36b5", "#495057", "#000000"];
+const TEXT_COLORS = ["#e03131", "#f08c00", "#2f9e44", "#1971c2", "#9c36b5", "#e64980", "#495057", "#000000"];
 
 let editModeOn = false;
 let isDirty = false;
@@ -28,7 +31,6 @@ let savedRange = null;
 
 export function initEditMode() {
   injectToggleButton();
-  // 連結攔截：不管有沒有在編輯模式，只要有未儲存變更就攔下點擊
   document.addEventListener("click", handleLinkClick, true);
 }
 
@@ -44,23 +46,19 @@ function injectToggleButton() {
 function markDirty() {
   isDirty = true;
 }
-
 function markClean() {
   isDirty = false;
 }
-
 function confirmLeaveIfDirty(message) {
   if (!isDirty) return true;
   return window.confirm(message || "你有尚未儲存的變更，確定要離開嗎？（未儲存的內容可能會遺失）");
 }
-
 function handleBeforeUnload(e) {
   if (editModeOn && isDirty) {
     e.preventDefault();
     e.returnValue = "";
   }
 }
-
 function handleLinkClick(e) {
   if (!editModeOn || !isDirty) return;
   const a = e.target.closest("a");
@@ -92,12 +90,9 @@ function enableEditMode() {
   document.getElementById("edit-mode-toggle").textContent = "✓ 結束編輯";
   document.getElementById("edit-mode-toggle").classList.add("is-active");
 
-  // Enter 換行一律用 <br>，避免瀏覽器插入巢狀 <div>/<p> 導致空行被壓縮或整段被過濾掉
   try {
     document.execCommand("defaultParagraphSeparator", false, "br");
-  } catch (e) {
-    /* 部分瀏覽器可能不支援，忽略即可 */
-  }
+  } catch (e) {}
 
   document.querySelectorAll("[data-field]").forEach((el) => {
     el.setAttribute("contenteditable", "true");
@@ -106,9 +101,11 @@ function enableEditMode() {
     el.addEventListener("blur", onFieldBlur);
   });
 
-  injectImageButtons();
+  injectSingleImageControls();
+  injectMediaListEditing();
   injectNavEditing();
   injectTagListEditing();
+  injectSectionControls();
 
   document.addEventListener("selectionchange", handleSelectionChange);
   window.addEventListener("beforeunload", handleBeforeUnload);
@@ -127,9 +124,11 @@ function disableEditMode() {
     el.removeEventListener("blur", onFieldBlur);
   });
 
-  document.querySelectorAll(".img-edit-btn").forEach((b) => b.remove());
+  document.querySelectorAll(".img-controls, .media-item-controls").forEach((b) => b.remove());
+  document.querySelectorAll(".media-add-btn").forEach((b) => b.remove());
   removeNavEditing();
   removeTagListEditing();
+  removeSectionControls();
 
   document.removeEventListener("selectionchange", handleSelectionChange);
   window.removeEventListener("beforeunload", handleBeforeUnload);
@@ -142,46 +141,268 @@ async function onFieldBlur(e) {
   if (ok) markClean();
 }
 
-// ---- 圖片編輯（每個 .placeholder-box 右上角的小圓圈按鈕） ----
+// ---- 單張圖片／影片欄位：上傳、刪除、圖說 ----
 
-function injectImageButtons() {
-  document.querySelectorAll(".placeholder-box").forEach((box, idx) => {
-    if (!box.dataset.imgField) {
-      box.dataset.imgField = `img_${idx}`;
-    }
-    if (box.querySelector(":scope > .img-edit-btn")) return;
+function injectSingleImageControls() {
+  document.querySelectorAll(".placeholder-box[data-img-field]").forEach((box) => {
+    if (box.querySelector(":scope > .img-controls")) return;
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "img-edit-btn";
-    btn.textContent = "✎";
-    btn.title = "更換圖片";
-    btn.addEventListener("click", async (e) => {
+    const controls = document.createElement("div");
+    controls.className = "img-controls";
+
+    const uploadBtn = document.createElement("button");
+    uploadBtn.type = "button";
+    uploadBtn.className = "img-btn img-upload-btn";
+    uploadBtn.textContent = "⬆";
+    uploadBtn.title = "上傳圖片／影片";
+    uploadBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const current = box.dataset.imgFilename || "";
-      const filename = window.prompt(
-        "請輸入圖片檔名（會從本專案的 images/ 資料夾讀取，例如：hero-banner.jpg）：",
-        current
-      );
-      if (filename === null) return;
-      const trimmed = filename.trim();
-      if (trimmed === "") return;
-      if (!isSafeFilename(trimmed)) {
-        window.alert("檔名只能包含英數字、底線、破折號、點，且不能包含路徑符號。");
-        return;
-      }
-      box.dataset.imgFilename = trimmed;
-      applyImageToBox(box, trimmed);
-      injectImageButtons(); // applyImageToBox 會清空 box 內容，按鈕要重新插入
-      const ok = await saveField(window.PAGE_ID, box.dataset.imgField, trimmed);
+      triggerUpload(box, box.dataset.imgField);
+    });
+
+    const captionBtn = document.createElement("button");
+    captionBtn.type = "button";
+    captionBtn.className = "img-btn img-caption-btn";
+    captionBtn.textContent = "T";
+    captionBtn.title = "新增／編輯圖說";
+    captionBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      editCaptionForSingleImage(box);
+    });
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "img-btn img-delete-btn";
+    deleteBtn.textContent = "🗑";
+    deleteBtn.title = "刪除圖片";
+    deleteBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!window.confirm("確定要刪除這張圖片嗎？")) return;
+      clearImageBox(box);
+      injectSingleImageControls();
+      markDirty();
+      const ok = await saveField(window.PAGE_ID, box.dataset.imgField, "");
       if (ok) markClean();
     });
-    box.appendChild(btn);
+
+    controls.appendChild(uploadBtn);
+    controls.appendChild(captionBtn);
+    controls.appendChild(deleteBtn);
+    box.appendChild(controls);
   });
 }
 
-// ---- 口味選項等「清單」的編輯（新增／刪除／改文字） ----
+function triggerUpload(box, field, onDone) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*,video/*";
+  input.style.display = "none";
+  document.body.appendChild(input);
+  input.addEventListener("change", async () => {
+    const file = input.files[0];
+    input.remove();
+    if (!file) return;
+    box.classList.add("is-uploading");
+    const result = await uploadMedia(file, `${window.PAGE_ID}-${field}`);
+    box.classList.remove("is-uploading");
+    if (!result) return;
+    applyImageToBox(box, result.url, result.mediaType);
+    box.dataset.imgUrl = result.url;
+    box.dataset.mediaType = result.mediaType;
+    if (onDone) {
+      onDone(result);
+    } else {
+      markDirty();
+      const ok1 = await saveField(window.PAGE_ID, field, result.url);
+      const ok2 = await saveField(window.PAGE_ID, field + "_type", result.mediaType);
+      if (ok1 && ok2) markClean();
+      if (box.querySelectorAll(":scope > .img-controls").length === 0) injectSingleImageControls();
+    }
+  });
+  input.click();
+}
+
+async function editCaptionForSingleImage(box) {
+  const field = box.dataset.imgField;
+  const current = box.querySelector(":scope > .media-caption");
+  const currentText = current ? current.textContent : "";
+  const text = window.prompt("圖說文字（留空可移除圖說）：", currentText);
+  if (text === null) return;
+  const position = window.confirm("圖說要顯示在圖片右方嗎？（取消＝顯示在下方）") ? "right" : "below";
+
+  if (!text.trim()) {
+    if (current) current.remove();
+    box.classList.remove("caption-right", "caption-below");
+  } else {
+    let capEl = box.querySelector(":scope > .media-caption");
+    if (!capEl) {
+      capEl = document.createElement("div");
+      capEl.className = "media-caption";
+      box.appendChild(capEl);
+    }
+    capEl.textContent = text.trim();
+    box.classList.toggle("caption-right", position === "right");
+    box.classList.toggle("caption-below", position !== "right");
+  }
+  markDirty();
+  const ok1 = await saveField(window.PAGE_ID, field + "_caption", text.trim());
+  const ok2 = await saveField(window.PAGE_ID, field + "_captionPos", position);
+  if (ok1 && ok2) markClean();
+}
+
+// ---- 圖片／影片清單（data-media-list：多張圖的網格，可新增／刪除／搬移） ----
+
+function serializeMediaList(container) {
+  return Array.from(container.querySelectorAll(":scope > .media-item")).map((box) => {
+    const cap = box.querySelector(":scope > .media-caption");
+    return {
+      url: box.dataset.imgUrl || "",
+      mediaType: box.dataset.mediaType || "image",
+      caption: cap ? cap.textContent : "",
+      captionPos: box.classList.contains("caption-right") ? "right" : "below",
+    };
+  });
+}
+
+async function saveMediaList(container) {
+  const items = serializeMediaList(container);
+  const ok = await saveField(window.PAGE_ID, container.dataset.mediaList, items);
+  if (ok) markClean();
+}
+
+function setupMediaItemControls(box, container) {
+  if (box.querySelector(":scope > .media-item-controls")) return;
+  const controls = document.createElement("div");
+  controls.className = "media-item-controls";
+
+  const uploadBtn = document.createElement("button");
+  uploadBtn.type = "button";
+  uploadBtn.className = "img-btn";
+  uploadBtn.textContent = "⬆";
+  uploadBtn.title = "上傳圖片／影片";
+  uploadBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    triggerUpload(box, container.dataset.mediaList, () => saveMediaList(container));
+  });
+
+  const captionBtn = document.createElement("button");
+  captionBtn.type = "button";
+  captionBtn.className = "img-btn";
+  captionBtn.textContent = "T";
+  captionBtn.title = "新增／編輯圖說";
+  captionBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const current = box.querySelector(":scope > .media-caption");
+    const text = window.prompt("圖說文字（留空可移除圖說）：", current ? current.textContent : "");
+    if (text === null) return;
+    const position = window.confirm("圖說要顯示在圖片右方嗎？（取消＝顯示在下方）") ? "right" : "below";
+    if (!text.trim()) {
+      if (current) current.remove();
+      box.classList.remove("caption-right", "caption-below");
+    } else {
+      let capEl = current;
+      if (!capEl) {
+        capEl = document.createElement("div");
+        capEl.className = "media-caption";
+        box.appendChild(capEl);
+      }
+      capEl.textContent = text.trim();
+      box.classList.toggle("caption-right", position === "right");
+      box.classList.toggle("caption-below", position !== "right");
+    }
+    markDirty();
+    await saveMediaList(container);
+  });
+
+  const leftBtn = document.createElement("button");
+  leftBtn.type = "button";
+  leftBtn.className = "img-btn";
+  leftBtn.textContent = "◀";
+  leftBtn.title = "往前移";
+  leftBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const prev = box.previousElementSibling;
+    if (prev && prev.classList.contains("media-item")) {
+      container.insertBefore(box, prev);
+      markDirty();
+      await saveMediaList(container);
+    }
+  });
+
+  const rightBtn = document.createElement("button");
+  rightBtn.type = "button";
+  rightBtn.className = "img-btn";
+  rightBtn.textContent = "▶";
+  rightBtn.title = "往後移";
+  rightBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const next = box.nextElementSibling;
+    if (next && next.classList.contains("media-item")) {
+      container.insertBefore(next, box);
+      markDirty();
+      await saveMediaList(container);
+    }
+  });
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "img-btn img-delete-btn";
+  deleteBtn.textContent = "🗑";
+  deleteBtn.title = "刪除";
+  deleteBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm("確定要刪除這個項目嗎？")) return;
+    box.remove();
+    markDirty();
+    await saveMediaList(container);
+  });
+
+  controls.appendChild(leftBtn);
+  controls.appendChild(uploadBtn);
+  controls.appendChild(captionBtn);
+  controls.appendChild(rightBtn);
+  controls.appendChild(deleteBtn);
+  box.appendChild(controls);
+}
+
+function injectMediaListEditing() {
+  document.querySelectorAll("[data-media-list]").forEach((container) => {
+    container.querySelectorAll(":scope > .placeholder-box").forEach((box) => {
+      box.classList.add("media-item");
+      if (!box.dataset.imgUrl) box.dataset.imgUrl = "";
+      setupMediaItemControls(box, container);
+    });
+
+    if (!container.querySelector(":scope > .media-add-btn")) {
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.className = "media-add-btn placeholder-box";
+      addBtn.textContent = "＋ 新增圖片";
+      addBtn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        const box = document.createElement("div");
+        box.className = "placeholder-box media-item";
+        box.dataset.imgUrl = "";
+        box.textContent = "（空白圖片格）";
+        container.insertBefore(box, addBtn);
+        setupMediaItemControls(box, container);
+        markDirty();
+        await saveMediaList(container);
+      });
+      container.appendChild(addBtn);
+    }
+  });
+}
+
+// ---- 口味選項等「清單」的編輯 ----
 
 function injectTagListEditing() {
   document.querySelectorAll("[data-list-field]").forEach((container) => {
@@ -262,12 +483,74 @@ async function saveTagList(container) {
   const field = container.dataset.listField;
   const ok = await saveField(window.PAGE_ID, field, items);
   if (ok) markClean();
-  // 重新畫過，確保畫面跟實際存檔的內容一致（例如刪掉空白項目後）
   renderTagList(container, items);
   injectTagListEditing();
 }
 
-// ---- 導覽選單（列表）編輯：改文字、新增、刪除項目 ----
+// ---- 文字區塊（section）：刪除／上下移動 ----
+
+function injectSectionControls() {
+  document.querySelectorAll("[data-section-id]").forEach((section) => {
+    if (section.querySelector(":scope > .section-controls")) return;
+    const controls = document.createElement("div");
+    controls.className = "section-controls";
+
+    const upBtn = document.createElement("button");
+    upBtn.type = "button";
+    upBtn.textContent = "▲";
+    upBtn.title = "往上移";
+    upBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const prev = section.previousElementSibling;
+      if (prev && prev.hasAttribute("data-section-id")) {
+        section.parentElement.insertBefore(section, prev);
+        markDirty();
+        await saveField(window.PAGE_ID, "sectionOrder", getCurrentSectionOrder());
+        markClean();
+      }
+    });
+
+    const downBtn = document.createElement("button");
+    downBtn.type = "button";
+    downBtn.textContent = "▼";
+    downBtn.title = "往下移";
+    downBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const next = section.nextElementSibling;
+      if (next && next.hasAttribute("data-section-id")) {
+        section.parentElement.insertBefore(next, section);
+        markDirty();
+        await saveField(window.PAGE_ID, "sectionOrder", getCurrentSectionOrder());
+        markClean();
+      }
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.textContent = "🗑 刪除此區塊";
+    delBtn.className = "section-delete-btn";
+    delBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      if (!window.confirm("確定要刪除整個區塊嗎？（可以之後重新整理頁面把它救回來——除非再次儲存其他變更）")) return;
+      section.style.display = "none";
+      markDirty();
+      await saveField(window.PAGE_ID, "sectionOrder", getCurrentSectionOrder());
+      markClean();
+    });
+
+    controls.appendChild(upBtn);
+    controls.appendChild(downBtn);
+    controls.appendChild(delBtn);
+    section.style.position = section.style.position || "relative";
+    section.appendChild(controls);
+  });
+}
+
+function removeSectionControls() {
+  document.querySelectorAll(".section-controls").forEach((c) => c.remove());
+}
+
+// ---- 導覽選單（列表）編輯 ----
 
 function injectNavEditing() {
   const ul = document.querySelector(".main-nav > ul");
@@ -295,7 +578,7 @@ function setupNavLink(a) {
   a.dataset.navEditable = "true";
   a.setAttribute("contenteditable", "true");
   a.addEventListener("click", (e) => {
-    if (editModeOn) e.preventDefault(); // 編輯模式中點選單文字是要編輯，不是要導覽
+    if (editModeOn) e.preventDefault();
   });
   a.addEventListener("input", markDirty);
   a.addEventListener("blur", () => saveNavFromDom());
@@ -411,7 +694,7 @@ function ensureToolbar() {
   document.body.appendChild(toolbarEl);
 
   toolbarEl.querySelectorAll("button[data-cmd]").forEach((btn) => {
-    btn.addEventListener("mousedown", (e) => e.preventDefault()); // 避免點按鈕時選取範圍被清掉
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
     btn.addEventListener("click", () => {
       restoreSelection();
       document.execCommand(btn.dataset.cmd);
