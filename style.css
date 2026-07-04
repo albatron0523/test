@@ -85,7 +85,7 @@ img {
   display: block;
 }
 
-.submenu {
+.main-nav .submenu {
   display: none;
   position: absolute;
   top: 100%;
