@@ -51,7 +51,7 @@
 
   <section class="section">
     <h2>產品介紹</h2>
-    <p>【此處為產品口味介紹文案佔位，待填入正式授權翻譯內容】</p>
+    <p data-field="introText">【此處為產品口味介紹文案佔位，待填入正式授權翻譯內容】</p>
     <div class="flavor-tags">
       <span>口味佔位 1</span>
       <span>口味佔位 2</span>
@@ -64,18 +64,18 @@
 
   <section class="section">
     <h2>核心優勢</h2>
-    <p>【此處為產品核心優勢說明文案佔位，待填入正式授權翻譯內容】</p>
+    <p data-field="coreAdvantagesText">【此處為產品核心優勢說明文案佔位，待填入正式授權翻譯內容】</p>
   </section>
 
   <section class="section process-banner">
     <h2>製程說明</h2>
     <div class="placeholder-box">製程說明圖片佔位（約 1800×400）</div>
-    <p style="margin-top: 1rem;">【此處為製程技術說明文案佔位，待填入正式授權翻譯內容】</p>
+    <p style="margin-top: 1rem;" data-field="processText">【此處為製程技術說明文案佔位，待填入正式授權翻譯內容】</p>
   </section>
 
   <section class="section">
     <h2>包裝資訊</h2>
-    <p>【此處為包裝設計說明文案佔位，待填入正式授權翻譯內容】</p>
+    <p data-field="packagingText">【此處為包裝設計說明文案佔位，待填入正式授權翻譯內容】</p>
   </section>
 
   <section class="section">
@@ -156,6 +156,11 @@
     </div>
     <div class="footer-bottom">公司註冊號（佔位） ｜ 版面骨架 Demo，非正式上線內容</div>
   </footer>
+
+  <script type="module">
+    import { loadPageContent } from "../../firebase-content.js";
+    loadPageContent("freeze-dried-fruits");
+  </script>
 
 </body>
 </html>

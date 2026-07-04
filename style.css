@@ -82,11 +82,13 @@ img {
 }
 
 .main-nav .has-submenu:hover .submenu {
-  display: block;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .main-nav .submenu {
-  display: none;
   position: absolute;
   top: 100%;
   left: 0;
@@ -96,6 +98,11 @@ img {
   min-width: 200px;
   padding: 0.5rem 0;
   z-index: 10;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 0.22s ease, transform 0.22s ease, visibility 0.22s;
 }
 
 .submenu li {

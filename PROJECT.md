@@ -98,6 +98,16 @@
   - 若客戶未來需要在中文版網站上也能真的下單／串金流，才需要考慮完整重建 WooCommerce 環境。
   - **待確認**：跟需求方確認中文版是否需要保留購物車/結帳功能，或只需做導流連結到現有電商平台（Shopee/Lazada/TikTok）。此決定會直接影響技術棧選擇，請盡快確認並回填本節。
 
+### 本專案（中文版）實際採用的技術棧
+
+- **前端**：純 HTML + CSS + 少量原生 JavaScript（無 build 工具，無 npm/Vite）
+- **內容資料庫**：Firebase Firestore（專案 ID：`tastiwaycn`，與 Silerune 使用的 `silerune-ee33e` 是不同的獨立 Firebase 專案）
+  - 資料結構：collection `pages`，每個頁面一份文件（`pages/home`、`pages/freeze-dried-fruits`、`pages/freeze-dried-yogurt-bites`）
+  - 每份文件裡的欄位（如 `introText`、`coreAdvantagesText`、`processText`、`packagingText`、`heroTagline`、`brandIntroText`）對應頁面上 `data-field="欄位名稱"` 的元素，頁面載入時透過 `firebase-content.js` 讀取並套用；若 Firestore 還沒有對應文件/欄位，畫面會維持 HTML 裡寫死的佔位文字（不會出錯或空白）
+  - 目前**只有讀取（read-only）**，沒有像 Silerune 那樣的「編輯模式」UI；要更新內容，需要直接到 Firebase 主控台的 Firestore Database 頁面手動編輯文件欄位
+- **Firebase SDK 載入方式**：透過 CDN 直接 `import`（`https://www.gstatic.com/firebasejs/12.0.0/...`），不需要 npm install，適合這種沒有 build 流程的靜態網站
+- **部署**：GitHub Pages（repo：https://github.com/albatron0523/test ）
+
 ## 4. 素材清單
 
 | 素材類型 | 說明 | 來源網址／路徑 | 狀態 |
