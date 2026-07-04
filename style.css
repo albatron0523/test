@@ -376,6 +376,8 @@ img {
   border-radius: 999px;
   padding: 0.35rem 0.9rem;
   font-size: 0.8rem;
+  color: #16305c;
+  font-weight: 600;
 }
 
 /* Process banner */
